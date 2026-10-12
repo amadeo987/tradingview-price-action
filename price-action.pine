@@ -23,7 +23,7 @@ string GROUP_VWAP = "7. VWAP"
 string GROUP_STYLE = "Style"
 
 string MODE_CLOSE = "Close through"
-string MODE_WICK = "Wick through"
+string MODE_WICK = "Fully filled (wick)"
 
 int swingLenInput = input.int(5, "Swing strength (bars on each side)", minval = 1, maxval = 50, tooltip = "A swing high needs this many lower highs on each side (a swing low: higher lows). Higher = fewer, more important swings. Swings are confirmed this many bars after the swing candle.", group = GROUP_GENERAL)
 
@@ -37,54 +37,70 @@ bool showTableInput = input.bool(true, "5. Trend table (2 timeframes)", group = 
 bool showEmaInput = input.bool(true, "6. EMAs", group = GROUP_SHOW)
 bool showVwapInput = input.bool(true, "7. VWAPs", group = GROUP_SHOW)
 
-int sfpLenInput = input.int(100, "Line length (bars from the swing)", minval = 10, maxval = 1000, tooltip = "The line is removed when price takes the level or when it gets older than this.", group = GROUP_SFP)
+int sfpLenInput = input.int(100, "Line length (bars from the swing)", minval = 10, maxval = 490, tooltip = "Every line has this length. A level stays on the chart until price takes it; only the newest levels are kept.", group = GROUP_SFP)
 int sfpMaxInput = input.int(5, "Max lines per side", minval = 1, maxval = 20, group = GROUP_SFP)
-bool sfpMarkInput = input.bool(true, "Mark confirmed SFP", tooltip = "When a candle wicks through an untaken high/low but closes back inside, an 'SFP' label marks that candle.", group = GROUP_SFP)
+int sfpMarksInput = input.int(2, "Confirmed SFP marks to keep (0 = off)", minval = 0, maxval = 20, tooltip = "When a candle wicks through an untaken high/low but closes back inside, an 'SFP' label marks that candle. Only the newest marks are kept.", group = GROUP_SFP)
 
-float obImpulseInput = input.float(1.5, "Impulse strength (ATR multiple)", minval = 0.0, step = 0.1, tooltip = "The breaking candle must close at least this many ATR(14) beyond the order block candle.", group = GROUP_OB)
+float obImpulseInput = input.float(1.5, "Impulse strength (ATR multiple)", minval = 0.0, step = 0.1, tooltip = "The breaking candle must close at least this many ATR(14) away from the far edge of the order block candle.", group = GROUP_OB)
 int obLookbackInput = input.int(15, "Look for the base candle up to N bars back", minval = 2, maxval = 100, group = GROUP_OB)
 int obMaxInput = input.int(5, "Max OBs per side", minval = 1, maxval = 10, group = GROUP_OB)
-int obLenInput = input.int(150, "OB life in bars (then removed)", minval = 10, maxval = 2000, group = GROUP_OB)
-string obModeInput = input.string(MODE_CLOSE, "Remove OB when price", options = [MODE_CLOSE, MODE_WICK], tooltip = "Close through: a candle closes beyond the far edge of the block. Wick through: any wick reaches beyond it.", group = GROUP_OB)
+int obLenInput = input.int(150, "OB length in bars (then removed)", minval = 10, maxval = 490, tooltip = "The box is drawn this many bars to the right of its candle and removed after that.", group = GROUP_OB)
+string obModeInput = input.string(MODE_WICK, "Remove OB when", options = [MODE_WICK, MODE_CLOSE], tooltip = "Fully filled: removed as soon as a wick reaches the far edge of the block. Close through: removed when a candle closes beyond the far edge.", group = GROUP_OB)
 
 float fvgMinInput = input.float(0.1, "Min gap size (ATR multiple)", minval = 0.0, step = 0.05, group = GROUP_FVG)
 int fvgMaxInput = input.int(5, "Max FVGs per side", minval = 1, maxval = 10, group = GROUP_FVG)
-int fvgLenInput = input.int(150, "FVG life in bars (then removed)", minval = 10, maxval = 2000, group = GROUP_FVG)
-string fvgModeInput = input.string(MODE_WICK, "Remove FVG when price", options = [MODE_WICK, MODE_CLOSE], tooltip = "Wick through: the gap is fully filled by a wick. Close through: a candle closes beyond the far edge of the gap.", group = GROUP_FVG)
-bool fvgMidInput = input.bool(true, "Midline (50%)", tooltip = "Dotted line in the middle of the gap (consequent encroachment), the level many traders watch inside an FVG.", group = GROUP_FVG)
+int fvgLenInput = input.int(150, "FVG length in bars (then removed)", minval = 10, maxval = 490, tooltip = "The box is drawn this many bars to the right of the gap and removed after that.", group = GROUP_FVG)
+string fvgModeInput = input.string(MODE_WICK, "Remove FVG when", options = [MODE_WICK, MODE_CLOSE], tooltip = "Fully filled: removed as soon as a wick fills the whole gap. Close through: removed when a candle closes beyond the far edge of the gap.", group = GROUP_FVG)
+bool fvgMidInput = input.bool(false, "Midline (50%)", tooltip = "Dotted line in the middle of the gap (consequent encroachment).", group = GROUP_FVG)
+bool fvgPocInput = input.bool(true, "Mark the FVG that holds the volume POC", tooltip = "A volume profile is built over the move that created the gap: from the low the rise started from to the current high (for a bearish gap: from the high the drop started from to the current low). The gap that contains the point of control (the price with the most volume) is coloured as 'FVG with POC' and gets a POC line.", group = GROUP_FVG)
+bool fvgPocOnlyInput = input.bool(false, "Show only FVGs with POC", group = GROUP_FVG)
+int fvgRowsInput = input.int(40, "Volume profile rows", minval = 10, maxval = 200, tooltip = "Number of price rows in the volume profile used to find the POC.", group = GROUP_FVG)
 
 string htfInput = input.timeframe("", "Higher timeframe (empty = 4x current)", group = GROUP_TABLE)
 string tablePosInput = input.string("Top right", "Table position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = GROUP_TABLE)
 string tableSizeInput = input.string("Normal", "Table text size", options = ["Small", "Normal", "Large"], group = GROUP_TABLE)
 
 float emaSrcInput = input.source(close, "Source", group = GROUP_EMA)
-int emaWidthInput = input.int(1, "Line width", minval = 1, maxval = 4, group = GROUP_EMA)
 bool ema1OnInput = input.bool(false, "EMA 1", inline = "e1", group = GROUP_EMA)
 int ema1LenInput = input.int(9, "", minval = 1, inline = "e1", group = GROUP_EMA)
-color ema1ColorInput = input.color(color.rgb(255, 193, 7), "", inline = "e1", group = GROUP_EMA)
-bool ema2OnInput = input.bool(false, "EMA 2", inline = "e2", group = GROUP_EMA)
-int ema2LenInput = input.int(21, "", minval = 1, inline = "e2", group = GROUP_EMA)
-color ema2ColorInput = input.color(color.rgb(255, 112, 67), "", inline = "e2", group = GROUP_EMA)
+color ema1ColorInput = input.color(color.rgb(255, 213, 79), "", inline = "e1", group = GROUP_EMA)
+int ema1WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e1", group = GROUP_EMA)
+bool ema2OnInput = input.bool(true, "EMA 2", inline = "e2", group = GROUP_EMA)
+int ema2LenInput = input.int(20, "", minval = 1, inline = "e2", group = GROUP_EMA)
+color ema2ColorInput = input.color(color.rgb(41, 182, 246), "", inline = "e2", group = GROUP_EMA)
+int ema2WidthInput = input.int(2, "", minval = 1, maxval = 4, inline = "e2", group = GROUP_EMA)
 bool ema3OnInput = input.bool(true, "EMA 3", inline = "e3", group = GROUP_EMA)
 int ema3LenInput = input.int(50, "", minval = 1, inline = "e3", group = GROUP_EMA)
-color ema3ColorInput = input.color(color.rgb(41, 182, 246), "", inline = "e3", group = GROUP_EMA)
+color ema3ColorInput = input.color(color.rgb(255, 167, 38), "", inline = "e3", group = GROUP_EMA)
+int ema3WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e3", group = GROUP_EMA)
 bool ema4OnInput = input.bool(true, "EMA 4", inline = "e4", group = GROUP_EMA)
 int ema4LenInput = input.int(100, "", minval = 1, inline = "e4", group = GROUP_EMA)
-color ema4ColorInput = input.color(color.rgb(171, 71, 188), "", inline = "e4", group = GROUP_EMA)
+color ema4ColorInput = input.color(color.rgb(236, 64, 122), "", inline = "e4", group = GROUP_EMA)
+int ema4WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e4", group = GROUP_EMA)
 bool ema5OnInput = input.bool(true, "EMA 5", inline = "e5", group = GROUP_EMA)
 int ema5LenInput = input.int(200, "", minval = 1, inline = "e5", group = GROUP_EMA)
 color ema5ColorInput = input.color(color.rgb(33, 33, 33), "", inline = "e5", group = GROUP_EMA)
+int ema5WidthInput = input.int(2, "", minval = 1, maxval = 4, inline = "e5", group = GROUP_EMA)
 bool ema6OnInput = input.bool(false, "EMA 6", inline = "e6", group = GROUP_EMA)
 int ema6LenInput = input.int(800, "", minval = 1, inline = "e6", group = GROUP_EMA)
 color ema6ColorInput = input.color(color.rgb(141, 110, 99), "", inline = "e6", group = GROUP_EMA)
+int ema6WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e6", group = GROUP_EMA)
+bool ema7OnInput = input.bool(false, "EMA 7", inline = "e7", group = GROUP_EMA)
+int ema7LenInput = input.int(21, "", minval = 1, inline = "e7", group = GROUP_EMA)
+color ema7ColorInput = input.color(color.rgb(102, 187, 106), "", inline = "e7", group = GROUP_EMA)
+int ema7WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e7", group = GROUP_EMA)
+bool ema8OnInput = input.bool(false, "EMA 8", inline = "e8", group = GROUP_EMA)
+int ema8LenInput = input.int(400, "", minval = 1, inline = "e8", group = GROUP_EMA)
+color ema8ColorInput = input.color(color.rgb(120, 144, 156), "", inline = "e8", group = GROUP_EMA)
+int ema8WidthInput = input.int(1, "", minval = 1, maxval = 4, inline = "e8", group = GROUP_EMA)
 
 float vwapSrcInput = input.source(hlc3, "Source", group = GROUP_VWAP)
 bool vwapDayInput = input.bool(true, "Daily VWAP", inline = "vd", group = GROUP_VWAP)
-color vwapDayColorInput = input.color(color.rgb(255, 152, 0), "", inline = "vd", group = GROUP_VWAP)
+color vwapDayColorInput = input.color(color.rgb(38, 166, 154), "", inline = "vd", group = GROUP_VWAP)
 bool vwapWeekInput = input.bool(true, "Weekly VWAP", inline = "vw", group = GROUP_VWAP)
-color vwapWeekColorInput = input.color(color.rgb(233, 30, 99), "", inline = "vw", group = GROUP_VWAP)
+color vwapWeekColorInput = input.color(color.rgb(126, 87, 194), "", inline = "vw", group = GROUP_VWAP)
 bool vwapMonthInput = input.bool(false, "Monthly VWAP", inline = "vm", group = GROUP_VWAP)
-color vwapMonthColorInput = input.color(color.rgb(0, 150, 136), "", inline = "vm", group = GROUP_VWAP)
+color vwapMonthColorInput = input.color(color.rgb(255, 152, 0), "", inline = "vm", group = GROUP_VWAP)
 bool vwapBandsInput = input.bool(false, "Bands", inline = "vb", tooltip = "Standard deviation bands around the daily and weekly VWAP.", group = GROUP_VWAP)
 float vwapBandMultInput = input.float(1.0, "x stdev", minval = 0.1, step = 0.5, inline = "vb", group = GROUP_VWAP)
 bool avwapAutoInput = input.bool(true, "Anchored VWAP from the last MSS", inline = "aa", tooltip = "Anchored at the extreme candle (lowest low / highest high) of the leg that produced the last market structure shift. It moves to a new anchor after every MSS.", group = GROUP_VWAP)
@@ -95,8 +111,10 @@ int avwapTimeInput = input.time(timestamp("2026-01-01T00:00:00"), "Anchor date",
 
 color bullColorInput = input.color(color.rgb(8, 153, 129), "Bullish / demand OB", group = GROUP_STYLE)
 color bearColorInput = input.color(color.rgb(242, 54, 69), "Bearish / supply OB", group = GROUP_STYLE)
-color fvgBullColorInput = input.color(color.rgb(41, 98, 255), "Bullish FVG", group = GROUP_STYLE)
+color fvgBullColorInput = input.color(color.rgb(120, 144, 156), "Bullish FVG", group = GROUP_STYLE)
 color fvgBearColorInput = input.color(color.rgb(255, 152, 0), "Bearish FVG", group = GROUP_STYLE)
+color fvgPocColorInput = input.color(color.rgb(41, 98, 255), "FVG with POC", group = GROUP_STYLE)
+color pocLineColorInput = input.color(color.rgb(242, 54, 69), "POC line", group = GROUP_STYLE)
 color sfpColorInput = input.color(color.rgb(149, 117, 205), "SFP lines", group = GROUP_STYLE)
 color structColorInput = input.color(color.rgb(120, 123, 134), "Structure labels", group = GROUP_STYLE)
 color zoneTextColorInput = input.color(color.rgb(54, 58, 69), "OB and FVG text", group = GROUP_STYLE)
@@ -107,7 +125,8 @@ int zoneTranspInput = input.int(75, "Zone fill transparency", minval = 0, maxval
 // TradingView refuses drawings that start too far back from the current bar.
 int MAX_BARS_BACK = 4900
 
-// Order block or fair value gap drawn as a box (FVGs can also carry a midline).
+// Order block or fair value gap drawn as a box. FVGs can also carry a midline, a POC line and
+// the bar where the move that created them started (for the volume profile).
 type Zone
     box bx
     line mid
@@ -115,6 +134,8 @@ type Zone
     float bottom
     int leftBar
     bool isBull
+    int legStart = na
+    line pocLn = na
 
 // Untaken swing high or low drawn as a dashed "SFP?" line.
 type Level
@@ -177,30 +198,39 @@ tablePosition(string s) =>
         "Top left" => position.top_left
         => position.bottom_left
 
-// Removes zones that price has gone through or that are older than maxAge; stretches the rest to the current bar.
+// Right edge of a zone: `len` bars after its first candle, but never more than 490 bars into the future.
+zoneRight(int left, int len) =>
+    math.min(left + len, bar_index + 490)
+
+deleteZone(Zone z) =>
+    z.bx.delete()
+    if not na(z.mid)
+        z.mid.delete()
+    if not na(z.pocLn)
+        z.pocLn.delete()
+
+// Removes zones that price has filled or gone through and zones older than maxAge.
 updateZones(array<Zone> zones, int maxAge, string mode) =>
     if zones.size() > 0
         for i = zones.size() - 1 to 0
             Zone z = zones.get(i)
-            bool crossed = z.isBull ? (mode == MODE_CLOSE ? close < z.bottom : low < z.bottom) : (mode == MODE_CLOSE ? close > z.top : high > z.top)
+            bool crossed = z.isBull ? (mode == MODE_CLOSE ? close < z.bottom : low <= z.bottom) : (mode == MODE_CLOSE ? close > z.top : high >= z.top)
             if crossed or bar_index - z.leftBar > maxAge
                 zones.remove(i)
-                z.bx.delete()
-                if not na(z.mid)
-                    z.mid.delete()
+                deleteZone(z)
             else
-                z.bx.set_right(bar_index + 3)
+                int right = zoneRight(z.leftBar, maxAge)
+                z.bx.set_right(right)
                 if not na(z.mid)
-                    z.mid.set_x2(bar_index + 3)
+                    z.mid.set_x2(right)
+                if not na(z.pocLn)
+                    z.pocLn.set_x2(right)
 
 // Adds a zone and deletes the oldest one when there are more than maxCount.
 addZone(array<Zone> zones, Zone z, int maxCount) =>
     zones.push(z)
     if zones.size() > maxCount
-        Zone old = zones.shift()
-        old.bx.delete()
-        if not na(old.mid)
-            old.mid.delete()
+        deleteZone(zones.shift())
 
 // True when the price range overlaps a zone that is already drawn.
 overlapsZone(array<Zone> zones, float top, float bottom) =>
@@ -222,17 +252,16 @@ drawBreak(int fromBar, float level, bool isMss, bool isUp) =>
         line.new(fromBar, level, bar_index, level, color = c, style = isMss ? line.style_solid : line.style_dashed, width = isMss ? 2 : 1)
         label.new(int(math.round((fromBar + bar_index) / 2)), level, isMss ? "MSS" : "BOS", style = isUp ? label.style_label_down : label.style_label_up, color = NO_COLOR, textcolor = c, size = isMss ? size.normal : size.small)
 
-// Bars back to the order block candle: the extreme candle of the last obLookback bars,
-// or the closest opposite-coloured candle at most 3 bars before it (the last down candle before an up move).
+// Bars back to the order block candle: the last opposite-coloured candle before the breaking move
+// (the last down candle before a bullish break, the last up candle before a bearish break), searched up to
+// obLookback bars back, whose far edge lies at least obImpulse x ATR from the breaking close. -1 = none.
 baseCandle(bool isBull) =>
-    int extreme = 0
-    for i = 1 to obLookbackInput - 1
-        if isBull ? low[i] < low[extreme] : high[i] > high[extreme]
-            extreme := i
-    int base = extreme
-    for j = extreme to extreme + 3
-        if isBull ? close[j] < open[j] : close[j] > open[j]
-            base := j
+    int base = -1
+    for i = 1 to obLookbackInput
+        bool opposite = isBull ? close[i] < open[i] : close[i] > open[i]
+        float impulse = isBull ? close - low[i] : high[i] - close
+        if opposite and impulse >= obImpulseInput * nz(atrValue)
+            base := i
             break
     base
 
@@ -254,40 +283,91 @@ addLevel(array<Level> levels, float price, int bar, bool isHigh) =>
         old.ln.delete()
         old.lb.delete()
 
-// Removes levels that price took or that expired. Returns true when a level was taken by a wick
-// and the closed candle finished back on the other side (swing failure pattern).
+// Removes levels that price took. Returns true when a level was taken by a wick and the closed candle
+// finished back on the other side (swing failure pattern).
 updateLevels(array<Level> levels) =>
     bool sfp = false
     if levels.size() > 0
         for i = levels.size() - 1 to 0
             Level lv = levels.get(i)
             bool taken = lv.isHigh ? high > lv.price : low < lv.price
-            if taken or bar_index - lv.bar > sfpLenInput
-                if taken and barstate.isconfirmed and (lv.isHigh ? close < lv.price : close > lv.price)
+            if taken
+                if barstate.isconfirmed and (lv.isHigh ? close < lv.price : close > lv.price)
                     sfp := true
                 levels.remove(i)
                 lv.ln.delete()
                 lv.lb.delete()
     sfp
 
-addFvg(array<Zone> zones, bool isBull, float top, float bottom) =>
+// legFrom: bar after which the move that created the gap started (the last opposite swing).
+addFvg(array<Zone> zones, bool isBull, float top, float bottom, int legFrom) =>
     color c = isBull ? fvgBullColorInput : fvgBearColorInput
     int left = bar_index - 2
-    box bx = box.new(left, top, bar_index + 3, bottom, border_color = NO_COLOR, bgcolor = color.new(c, math.min(zoneTranspInput + 5, 100)), text = "FVG", text_color = zoneTextColorInput, text_size = size.small)
+    int right = zoneRight(left, fvgLenInput)
+    box bx = box.new(left, top, right, bottom, border_color = NO_COLOR, bgcolor = color.new(c, math.min(zoneTranspInput + 5, 100)), text = "FVG", text_color = zoneTextColorInput, text_size = size.small)
     line mid = na
     if fvgMidInput
-        mid := line.new(left, (top + bottom) / 2, bar_index + 3, (top + bottom) / 2, color = color.new(c, 30), style = line.style_dotted, width = 1)
-    addZone(zones, Zone.new(bx, mid, top, bottom, left, isBull), fvgMaxInput)
+        mid := line.new(left, (top + bottom) / 2, right, (top + bottom) / 2, color = color.new(c, 30), style = line.style_dotted, width = 1)
+    int legStart = bar_index - extremeSince(math.max(legFrom, 0), isBull)
+    addZone(zones, Zone.new(bx, mid, top, bottom, left, isBull, legStart), fvgMaxInput)
 
 addOb(array<Zone> zones, bool isBull) =>
     int b = baseCandle(isBull)
-    float top = high[b]
-    float bottom = low[b]
-    float impulse = isBull ? close - top : bottom - close
-    if impulse >= obImpulseInput * nz(atrValue) and not overlapsZone(zones, top, bottom)
-        color c = isBull ? bullColorInput : bearColorInput
-        box bx = box.new(bar_index - b, top, bar_index + 3, bottom, border_color = color.new(c, 40), bgcolor = color.new(c, zoneTranspInput), text = "OB", text_color = zoneTextColorInput, text_size = size.normal)
-        addZone(zones, Zone.new(bx, na, top, bottom, bar_index - b, isBull), obMaxInput)
+    if b > 0
+        float top = high[b]
+        float bottom = low[b]
+        if not overlapsZone(zones, top, bottom)
+            color c = isBull ? bullColorInput : bearColorInput
+            box bx = box.new(bar_index - b, top, zoneRight(bar_index - b, obLenInput), bottom, border_color = color.new(c, 40), bgcolor = color.new(c, zoneTranspInput), text = "OB", text_color = zoneTextColorInput, text_size = size.normal)
+            addZone(zones, Zone.new(bx, na, top, bottom, bar_index - b, isBull), obMaxInput)
+
+// Point of control (middle of the price row with the most volume) of the bars fromBar..toBar.
+// Each candle's volume is spread evenly over the rows its range covers. na without volume data.
+legPoc(int fromBar, int toBar, int rows) =>
+    int first = math.max(fromBar, bar_index - MAX_BARS_BACK)
+    float poc = na
+    if toBar >= first
+        float lo = low[bar_index - first]
+        float hi = high[bar_index - first]
+        for b = first to toBar
+            lo := math.min(lo, low[bar_index - b])
+            hi := math.max(hi, high[bar_index - b])
+        if hi > lo
+            float step = (hi - lo) / rows
+            array<float> vols = array.new<float>(rows, 0.0)
+            for b = first to toBar
+                int i = bar_index - b
+                int r1 = math.min(int((low[i] - lo) / step), rows - 1)
+                int r2 = math.min(int((high[i] - lo) / step), rows - 1)
+                float share = nz(volume[i]) / (r2 - r1 + 1)
+                for r = r1 to r2
+                    vols.set(r, vols.get(r) + share)
+            int best = 0
+            for r = 1 to rows - 1
+                if vols.get(r) > vols.get(best)
+                    best := r
+            if vols.get(best) > 0
+                poc := lo + (best + 0.5) * step
+    poc
+
+// Colours the gaps on the last bar: the gap that contains the POC of its move (from the start of the move
+// to the most extreme price since the gap) gets the POC colour and a POC line; with "only POC" the others are hidden.
+styleFvgs(array<Zone> zones) =>
+    for z in zones
+        float poc = na
+        if fvgPocInput and not na(z.legStart)
+            int endBar = bar_index - extremeSince(z.leftBar, not z.isBull)
+            poc := legPoc(z.legStart, endBar, fvgRowsInput)
+        bool hasPoc = not na(poc) and poc >= z.bottom and poc <= z.top
+        bool visible = hasPoc or not fvgPocOnlyInput
+        color c = hasPoc ? fvgPocColorInput : z.isBull ? fvgBullColorInput : fvgBearColorInput
+        z.bx.set_bgcolor(visible ? color.new(c, hasPoc ? math.max(zoneTranspInput - 10, 0) : math.min(zoneTranspInput + 5, 100)) : NO_COLOR)
+        z.bx.set_text(visible ? (hasPoc ? "FVG · POC" : "FVG") : "")
+        if not na(z.mid)
+            z.mid.set_color(visible ? color.new(c, 30) : NO_COLOR)
+        if not na(z.pocLn)
+            z.pocLn.delete()
+        z.pocLn := hasPoc ? line.new(z.leftBar, poc, zoneRight(z.leftBar, fvgLenInput), poc, color = pocLineColorInput, width = 1) : na
 //#endregion
 
 //#region Structure, breaks, order blocks, SFP, FVG
@@ -310,6 +390,7 @@ var array<Zone> bullObs = array.new<Zone>()
 var array<Zone> bearObs = array.new<Zone>()
 var array<Zone> bullFvgs = array.new<Zone>()
 var array<Zone> bearFvgs = array.new<Zone>()
+var array<label> sfpMarks = array.new<label>()
 
 bool mssUp = false
 bool mssDown = false
@@ -328,10 +409,13 @@ updateZones(bearObs, obLenInput, obModeInput)
 updateZones(bullFvgs, fvgLenInput, fvgModeInput)
 updateZones(bearFvgs, fvgLenInput, fvgModeInput)
 
-if sfpMarkInput and sfpHigh
-    label.new(bar_index, high, "SFP", style = label.style_label_down, color = NO_COLOR, textcolor = bearColorInput, size = size.small)
-if sfpMarkInput and sfpLow
-    label.new(bar_index, low, "SFP", style = label.style_label_up, color = NO_COLOR, textcolor = bullColorInput, size = size.small)
+// Only the newest SFP marks stay on the chart.
+if sfpMarksInput > 0 and sfpHigh
+    sfpMarks.push(label.new(bar_index, high, "SFP", style = label.style_label_down, color = NO_COLOR, textcolor = bearColorInput, size = size.small))
+if sfpMarksInput > 0 and sfpLow
+    sfpMarks.push(label.new(bar_index, low, "SFP", style = label.style_label_up, color = NO_COLOR, textcolor = bullColorInput, size = size.small))
+while sfpMarks.size() > sfpMarksInput
+    sfpMarks.shift().delete()
 
 // New swings (confirmed swingLen bars after the swing candle).
 if not na(ph)
@@ -385,11 +469,17 @@ if barstate.isconfirmed and not lowTaken and close < swingLow
 
 // Fair value gaps: candle 3 does not overlap candle 1.
 float gapMin = fvgMinInput * nz(atrValue)
+// The move behind a bullish gap starts at the lowest low since the last swing high (at most 300 bars back),
+// the move behind a bearish gap at the highest high since the last swing low.
 if showFvgInput and barstate.isconfirmed and bar_index >= 2
     if low > high[2] and low - high[2] >= gapMin
-        addFvg(bullFvgs, true, low, high[2])
+        addFvg(bullFvgs, true, low, high[2], na(swingHighBar) ? bar_index - 100 : math.max(swingHighBar, bar_index - 300))
     if high < low[2] and low[2] - high >= gapMin
-        addFvg(bearFvgs, false, low[2], high)
+        addFvg(bearFvgs, false, low[2], high, na(swingLowBar) ? bar_index - 100 : math.max(swingLowBar, bar_index - 300))
+
+if barstate.islast
+    styleFvgs(bullFvgs)
+    styleFvgs(bearFvgs)
 //#endregion
 
 //#region EMAs
@@ -399,12 +489,16 @@ float ema3 = ta.ema(emaSrcInput, ema3LenInput)
 float ema4 = ta.ema(emaSrcInput, ema4LenInput)
 float ema5 = ta.ema(emaSrcInput, ema5LenInput)
 float ema6 = ta.ema(emaSrcInput, ema6LenInput)
-plot(showEmaInput and ema1OnInput ? ema1 : na, "EMA 1", ema1ColorInput, emaWidthInput)
-plot(showEmaInput and ema2OnInput ? ema2 : na, "EMA 2", ema2ColorInput, emaWidthInput)
-plot(showEmaInput and ema3OnInput ? ema3 : na, "EMA 3", ema3ColorInput, emaWidthInput)
-plot(showEmaInput and ema4OnInput ? ema4 : na, "EMA 4", ema4ColorInput, emaWidthInput)
-plot(showEmaInput and ema5OnInput ? ema5 : na, "EMA 5", ema5ColorInput, emaWidthInput)
-plot(showEmaInput and ema6OnInput ? ema6 : na, "EMA 6", ema6ColorInput, emaWidthInput)
+float ema7 = ta.ema(emaSrcInput, ema7LenInput)
+float ema8 = ta.ema(emaSrcInput, ema8LenInput)
+plot(showEmaInput and ema1OnInput ? ema1 : na, "EMA 1", ema1ColorInput, ema1WidthInput)
+plot(showEmaInput and ema2OnInput ? ema2 : na, "EMA 2", ema2ColorInput, ema2WidthInput)
+plot(showEmaInput and ema3OnInput ? ema3 : na, "EMA 3", ema3ColorInput, ema3WidthInput)
+plot(showEmaInput and ema4OnInput ? ema4 : na, "EMA 4", ema4ColorInput, ema4WidthInput)
+plot(showEmaInput and ema5OnInput ? ema5 : na, "EMA 5", ema5ColorInput, ema5WidthInput)
+plot(showEmaInput and ema6OnInput ? ema6 : na, "EMA 6", ema6ColorInput, ema6WidthInput)
+plot(showEmaInput and ema7OnInput ? ema7 : na, "EMA 7", ema7ColorInput, ema7WidthInput)
+plot(showEmaInput and ema8OnInput ? ema8 : na, "EMA 8", ema8ColorInput, ema8WidthInput)
 //#endregion
 
 //#region VWAPs
@@ -420,17 +514,15 @@ bool showDay = showVwapInput and vwapDayInput and chartSecs < 86400
 bool showWeek = showVwapInput and vwapWeekInput and chartSecs < 604800
 bool showMonth = showVwapInput and vwapMonthInput and chartSecs < timeframe.in_seconds("M")
 
-// Fully transparent on the first bar of a new period, so the jump to the new VWAP is not drawn.
-periodColor(color c, bool isNew) =>
-    isNew ? color.new(c, 100) : c
-
-plot(showDay ? vwapDay : na, "Daily VWAP", periodColor(vwapDayColorInput, newDay), 1)
-plot(showDay and vwapBandsInput ? vwapDayUp : na, "Daily VWAP upper band", periodColor(color.new(vwapDayColorInput, 50), newDay), 1)
-plot(showDay and vwapBandsInput ? vwapDayDn : na, "Daily VWAP lower band", periodColor(color.new(vwapDayColorInput, 50), newDay), 1)
-plot(showWeek ? vwapWeek : na, "Weekly VWAP", periodColor(vwapWeekColorInput, newWeek), 2)
-plot(showWeek and vwapBandsInput ? vwapWeekUp : na, "Weekly VWAP upper band", periodColor(color.new(vwapWeekColorInput, 50), newWeek), 1)
-plot(showWeek and vwapBandsInput ? vwapWeekDn : na, "Weekly VWAP lower band", periodColor(color.new(vwapWeekColorInput, 50), newWeek), 1)
-plot(showMonth ? vwapMonth : na, "Monthly VWAP", periodColor(vwapMonthColorInput, newMonth), 2)
+// The reset candle is not hidden: ta.vwap() already returns the first value of the new period there,
+// so the line steps to the new VWAP without a one-candle gap.
+plot(showDay ? vwapDay : na, "Daily VWAP", vwapDayColorInput, 1, plot.style_linebr)
+plot(showDay and vwapBandsInput ? vwapDayUp : na, "Daily VWAP upper band", color.new(vwapDayColorInput, 50), 1, plot.style_linebr)
+plot(showDay and vwapBandsInput ? vwapDayDn : na, "Daily VWAP lower band", color.new(vwapDayColorInput, 50), 1, plot.style_linebr)
+plot(showWeek ? vwapWeek : na, "Weekly VWAP", vwapWeekColorInput, 1, plot.style_linebr)
+plot(showWeek and vwapBandsInput ? vwapWeekUp : na, "Weekly VWAP upper band", color.new(vwapWeekColorInput, 50), 1, plot.style_linebr)
+plot(showWeek and vwapBandsInput ? vwapWeekDn : na, "Weekly VWAP lower band", color.new(vwapWeekColorInput, 50), 1, plot.style_linebr)
+plot(showMonth ? vwapMonth : na, "Monthly VWAP", vwapMonthColorInput, 1, plot.style_linebr)
 
 // Anchored VWAP from a date: cumulative from the first candle at or after the anchor time.
 var float dateSumPV = na
@@ -442,16 +534,13 @@ if not na(dateSumV)
     dateSumPV += vwapSrcInput * nz(volume)
     dateSumV += nz(volume)
 float avwapDate = dateSumV > 0 ? dateSumPV / dateSumV : na
-plot(showVwapInput and avwapDateInput ? avwapDate : na, "Anchored VWAP (date)", avwapDateColorInput, 2)
+plot(showVwapInput and avwapDateInput ? avwapDate : na, "Anchored VWAP (date)", avwapDateColorInput, 1)
 
 // Anchored VWAP from the last MSS: the anchor lies in the past, so the whole line is redrawn on the last bar.
 var polyline avwapLine = na
-var label avwapLabel = na
 if barstate.islast
     if not na(avwapLine)
         avwapLine.delete()
-    if not na(avwapLabel)
-        avwapLabel.delete()
     if showVwapInput and avwapAutoInput and not na(avwapAnchorBar)
         int n = math.min(bar_index - avwapAnchorBar, MAX_BARS_BACK)
         array<chart.point> points = array.new<chart.point>()
@@ -464,8 +553,7 @@ if barstate.islast
             if sumV > 0
                 points.push(chart.point.from_index(bar_index - i, sumPV / sumV))
         if points.size() > 1
-            avwapLine := polyline.new(points, line_color = avwapAutoColorInput, line_width = 2)
-            avwapLabel := label.new(bar_index, points.last().price, "aVWAP (MSS)", style = label.style_label_left, color = NO_COLOR, textcolor = avwapAutoColorInput, size = size.small)
+            avwapLine := polyline.new(points, line_color = avwapAutoColorInput, line_width = 1)
 //#endregion
 
 //#region Trend table
