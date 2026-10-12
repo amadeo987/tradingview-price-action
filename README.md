@@ -40,6 +40,11 @@
 - Separate conditions are also available for `Bullish MSS`, `Bearish MSS`, `Bullish BOS`, `Bearish BOS`, `SFP high` and `SFP low`.
 - Alerts keep a snapshot of the script and its settings: recreate them after changing settings or updating the script.
 
+## Where to get it
+
+- TradingView: [[ad] Price Action](https://www.tradingview.com/script/KvepE35r-ad-Price-Action/) (open-source publication, add it with "Add to favorites" / "Use on chart").
+- Source code: this repository.
+
 ## Installation
 
 1. Open the Pine Editor in TradingView.
