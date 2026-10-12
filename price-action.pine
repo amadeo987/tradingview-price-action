@@ -1,0 +1,529 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("[ad] Price Action", shorttitle = "[ad] PA", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 50, max_polylines_count = 5, max_bars_back = 5000)
+
+// Price action toolkit in one indicator:
+// market structure (HH / HL / LH / LL), structure breaks (MSS = trend change, BOS = trend continuation),
+// order blocks, fair value gaps, untaken swing highs/lows (possible SFP levels), a two-timeframe trend table,
+// EMAs, session VWAPs (daily / weekly / monthly) and anchored VWAPs.
+//
+// Swings are confirmed `swingLen` bars after the swing candle (a pivot needs that many bars on each side),
+// so structure labels appear with that delay. Breaks, order blocks, gaps and SFP marks use closed candles only.
+// The higher-timeframe trend in the table comes from the last completed higher-timeframe candle, so it never repaints.
+
+//#region Inputs
+string GROUP_GENERAL = "General"
+string GROUP_SHOW = "What to show"
+string GROUP_SFP = "2. Untaken highs / lows (SFP?)"
+string GROUP_OB = "4. Order blocks"
+string GROUP_FVG = "4a. Fair value gaps"
+string GROUP_TABLE = "5. Trend table"
+string GROUP_EMA = "6. EMAs"
+string GROUP_VWAP = "7. VWAP"
+string GROUP_STYLE = "Style"
+
+string MODE_CLOSE = "Close through"
+string MODE_WICK = "Wick through"
+
+int swingLenInput = input.int(5, "Swing strength (bars on each side)", minval = 1, maxval = 50, tooltip = "A swing high needs this many lower highs on each side (a swing low: higher lows). Higher = fewer, more important swings. Swings are confirmed this many bars after the swing candle.", group = GROUP_GENERAL)
+
+bool showStructInput = input.bool(true, "1. Market structure (HH / HL / LH / LL)", group = GROUP_SHOW)
+bool showSfpInput = input.bool(true, "2. Untaken highs and lows (SFP?)", group = GROUP_SHOW)
+bool showMssInput = input.bool(true, "3. Market structure shift (MSS)", tooltip = "A close beyond the last swing against the current trend: the trend changes direction.", group = GROUP_SHOW)
+bool showBosInput = input.bool(true, "3a. Trend continuation (BOS)", tooltip = "A close beyond the last swing in the direction of the current trend.", group = GROUP_SHOW)
+bool showObInput = input.bool(true, "4. Order blocks (OB)", group = GROUP_SHOW)
+bool showFvgInput = input.bool(true, "4a. Fair value gaps (FVG)", group = GROUP_SHOW)
+bool showTableInput = input.bool(true, "5. Trend table (2 timeframes)", group = GROUP_SHOW)
+bool showEmaInput = input.bool(true, "6. EMAs", group = GROUP_SHOW)
+bool showVwapInput = input.bool(true, "7. VWAPs", group = GROUP_SHOW)
+
+int sfpLenInput = input.int(100, "Line length (bars from the swing)", minval = 10, maxval = 1000, tooltip = "The line is removed when price takes the level or when it gets older than this.", group = GROUP_SFP)
+int sfpMaxInput = input.int(5, "Max lines per side", minval = 1, maxval = 20, group = GROUP_SFP)
+bool sfpMarkInput = input.bool(true, "Mark confirmed SFP", tooltip = "When a candle wicks through an untaken high/low but closes back inside, an 'SFP' label marks that candle.", group = GROUP_SFP)
+
+float obImpulseInput = input.float(1.5, "Impulse strength (ATR multiple)", minval = 0.0, step = 0.1, tooltip = "The breaking candle must close at least this many ATR(14) beyond the order block candle.", group = GROUP_OB)
+int obLookbackInput = input.int(15, "Look for the base candle up to N bars back", minval = 2, maxval = 100, group = GROUP_OB)
+int obMaxInput = input.int(5, "Max OBs per side", minval = 1, maxval = 10, group = GROUP_OB)
+int obLenInput = input.int(150, "OB life in bars (then removed)", minval = 10, maxval = 2000, group = GROUP_OB)
+string obModeInput = input.string(MODE_CLOSE, "Remove OB when price", options = [MODE_CLOSE, MODE_WICK], tooltip = "Close through: a candle closes beyond the far edge of the block. Wick through: any wick reaches beyond it.", group = GROUP_OB)
+
+float fvgMinInput = input.float(0.1, "Min gap size (ATR multiple)", minval = 0.0, step = 0.05, group = GROUP_FVG)
+int fvgMaxInput = input.int(5, "Max FVGs per side", minval = 1, maxval = 10, group = GROUP_FVG)
+int fvgLenInput = input.int(150, "FVG life in bars (then removed)", minval = 10, maxval = 2000, group = GROUP_FVG)
+string fvgModeInput = input.string(MODE_WICK, "Remove FVG when price", options = [MODE_WICK, MODE_CLOSE], tooltip = "Wick through: the gap is fully filled by a wick. Close through: a candle closes beyond the far edge of the gap.", group = GROUP_FVG)
+bool fvgMidInput = input.bool(true, "Midline (50%)", tooltip = "Dotted line in the middle of the gap (consequent encroachment), the level many traders watch inside an FVG.", group = GROUP_FVG)
+
+string htfInput = input.timeframe("", "Higher timeframe (empty = 4x current)", group = GROUP_TABLE)
+string tablePosInput = input.string("Top right", "Table position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = GROUP_TABLE)
+string tableSizeInput = input.string("Normal", "Table text size", options = ["Small", "Normal", "Large"], group = GROUP_TABLE)
+
+float emaSrcInput = input.source(close, "Source", group = GROUP_EMA)
+int emaWidthInput = input.int(1, "Line width", minval = 1, maxval = 4, group = GROUP_EMA)
+bool ema1OnInput = input.bool(false, "EMA 1", inline = "e1", group = GROUP_EMA)
+int ema1LenInput = input.int(9, "", minval = 1, inline = "e1", group = GROUP_EMA)
+color ema1ColorInput = input.color(color.rgb(255, 193, 7), "", inline = "e1", group = GROUP_EMA)
+bool ema2OnInput = input.bool(false, "EMA 2", inline = "e2", group = GROUP_EMA)
+int ema2LenInput = input.int(21, "", minval = 1, inline = "e2", group = GROUP_EMA)
+color ema2ColorInput = input.color(color.rgb(255, 112, 67), "", inline = "e2", group = GROUP_EMA)
+bool ema3OnInput = input.bool(true, "EMA 3", inline = "e3", group = GROUP_EMA)
+int ema3LenInput = input.int(50, "", minval = 1, inline = "e3", group = GROUP_EMA)
+color ema3ColorInput = input.color(color.rgb(41, 182, 246), "", inline = "e3", group = GROUP_EMA)
+bool ema4OnInput = input.bool(true, "EMA 4", inline = "e4", group = GROUP_EMA)
+int ema4LenInput = input.int(100, "", minval = 1, inline = "e4", group = GROUP_EMA)
+color ema4ColorInput = input.color(color.rgb(171, 71, 188), "", inline = "e4", group = GROUP_EMA)
+bool ema5OnInput = input.bool(true, "EMA 5", inline = "e5", group = GROUP_EMA)
+int ema5LenInput = input.int(200, "", minval = 1, inline = "e5", group = GROUP_EMA)
+color ema5ColorInput = input.color(color.rgb(33, 33, 33), "", inline = "e5", group = GROUP_EMA)
+bool ema6OnInput = input.bool(false, "EMA 6", inline = "e6", group = GROUP_EMA)
+int ema6LenInput = input.int(800, "", minval = 1, inline = "e6", group = GROUP_EMA)
+color ema6ColorInput = input.color(color.rgb(141, 110, 99), "", inline = "e6", group = GROUP_EMA)
+
+float vwapSrcInput = input.source(hlc3, "Source", group = GROUP_VWAP)
+bool vwapDayInput = input.bool(true, "Daily VWAP", inline = "vd", group = GROUP_VWAP)
+color vwapDayColorInput = input.color(color.rgb(255, 152, 0), "", inline = "vd", group = GROUP_VWAP)
+bool vwapWeekInput = input.bool(true, "Weekly VWAP", inline = "vw", group = GROUP_VWAP)
+color vwapWeekColorInput = input.color(color.rgb(233, 30, 99), "", inline = "vw", group = GROUP_VWAP)
+bool vwapMonthInput = input.bool(false, "Monthly VWAP", inline = "vm", group = GROUP_VWAP)
+color vwapMonthColorInput = input.color(color.rgb(0, 150, 136), "", inline = "vm", group = GROUP_VWAP)
+bool vwapBandsInput = input.bool(false, "Bands", inline = "vb", tooltip = "Standard deviation bands around the daily and weekly VWAP.", group = GROUP_VWAP)
+float vwapBandMultInput = input.float(1.0, "x stdev", minval = 0.1, step = 0.5, inline = "vb", group = GROUP_VWAP)
+bool avwapAutoInput = input.bool(true, "Anchored VWAP from the last MSS", inline = "aa", tooltip = "Anchored at the extreme candle (lowest low / highest high) of the leg that produced the last market structure shift. It moves to a new anchor after every MSS.", group = GROUP_VWAP)
+color avwapAutoColorInput = input.color(color.rgb(63, 81, 181), "", inline = "aa", group = GROUP_VWAP)
+bool avwapDateInput = input.bool(false, "Anchored VWAP from date", inline = "ad", group = GROUP_VWAP)
+color avwapDateColorInput = input.color(color.rgb(121, 85, 72), "", inline = "ad", group = GROUP_VWAP)
+int avwapTimeInput = input.time(timestamp("2026-01-01T00:00:00"), "Anchor date", tooltip = "Change the date here. If it lies before the first loaded candle, the VWAP starts from the first loaded candle.", group = GROUP_VWAP)
+
+color bullColorInput = input.color(color.rgb(8, 153, 129), "Bullish / demand OB", group = GROUP_STYLE)
+color bearColorInput = input.color(color.rgb(242, 54, 69), "Bearish / supply OB", group = GROUP_STYLE)
+color fvgBullColorInput = input.color(color.rgb(41, 98, 255), "Bullish FVG", group = GROUP_STYLE)
+color fvgBearColorInput = input.color(color.rgb(255, 152, 0), "Bearish FVG", group = GROUP_STYLE)
+color sfpColorInput = input.color(color.rgb(149, 117, 205), "SFP lines", group = GROUP_STYLE)
+color structColorInput = input.color(color.rgb(120, 123, 134), "Structure labels", group = GROUP_STYLE)
+color zoneTextColorInput = input.color(color.rgb(54, 58, 69), "OB and FVG text", group = GROUP_STYLE)
+int zoneTranspInput = input.int(75, "Zone fill transparency", minval = 0, maxval = 100, group = GROUP_STYLE)
+//#endregion
+
+//#region Types and helpers
+// TradingView refuses drawings that start too far back from the current bar.
+int MAX_BARS_BACK = 4900
+
+// Order block or fair value gap drawn as a box (FVGs can also carry a midline).
+type Zone
+    box bx
+    line mid
+    float top
+    float bottom
+    int leftBar
+    bool isBull
+
+// Untaken swing high or low drawn as a dashed "SFP?" line.
+type Level
+    line ln
+    label lb
+    float price
+    int bar
+    bool isHigh
+
+// Trend from closes beyond the latest swing high / low: 1 = up, -1 = down, 0 = not known yet.
+// Same rules as the drawings below; used for the higher timeframe inside request.security().
+structureTrend(int len) =>
+    var int trend = 0
+    var float swingHigh = na
+    var float swingLow = na
+    var bool highTaken = true
+    var bool lowTaken = true
+    float ph = ta.pivothigh(high, len, len)
+    float pl = ta.pivotlow(low, len, len)
+    if not na(ph)
+        swingHigh := ph
+        highTaken := false
+    if not na(pl)
+        swingLow := pl
+        lowTaken := false
+    if not highTaken and close > swingHigh
+        highTaken := true
+        trend := 1
+    if not lowTaken and close < swingLow
+        lowTaken := true
+        trend := -1
+    trend
+
+// Trend of the last completed candle; with lookahead_on this gives a non-repainting higher-timeframe value.
+confirmedTrend(int len) =>
+    int t = structureTrend(len)
+    t[1]
+
+// "24" -> "24m", "240" -> "4h", "D" -> "1D".
+tfLabel(string tf) =>
+    int secs = timeframe.in_seconds(tf)
+    string result = str.length(tf) == 1 ? "1" + tf : tf
+    if secs < 60
+        result := str.tostring(secs) + "s"
+    else if secs < 86400
+        int mins = int(secs / 60)
+        result := mins % 60 == 0 ? str.tostring(int(mins / 60)) + "h" : str.tostring(mins) + "m"
+    result
+
+trendText(int t) =>
+    t == 1 ? "Up ▲" : t == -1 ? "Down ▼" : "—"
+
+textSize(string s) =>
+    s == "Small" ? size.small : s == "Large" ? size.large : size.normal
+
+tablePosition(string s) =>
+    switch s
+        "Top right" => position.top_right
+        "Bottom right" => position.bottom_right
+        "Top left" => position.top_left
+        => position.bottom_left
+
+// Removes zones that price has gone through or that are older than maxAge; stretches the rest to the current bar.
+updateZones(array<Zone> zones, int maxAge, string mode) =>
+    if zones.size() > 0
+        for i = zones.size() - 1 to 0
+            Zone z = zones.get(i)
+            bool crossed = z.isBull ? (mode == MODE_CLOSE ? close < z.bottom : low < z.bottom) : (mode == MODE_CLOSE ? close > z.top : high > z.top)
+            if crossed or bar_index - z.leftBar > maxAge
+                zones.remove(i)
+                z.bx.delete()
+                if not na(z.mid)
+                    z.mid.delete()
+            else
+                z.bx.set_right(bar_index + 3)
+                if not na(z.mid)
+                    z.mid.set_x2(bar_index + 3)
+
+// Adds a zone and deletes the oldest one when there are more than maxCount.
+addZone(array<Zone> zones, Zone z, int maxCount) =>
+    zones.push(z)
+    if zones.size() > maxCount
+        Zone old = zones.shift()
+        old.bx.delete()
+        if not na(old.mid)
+            old.mid.delete()
+
+// True when the price range overlaps a zone that is already drawn.
+overlapsZone(array<Zone> zones, float top, float bottom) =>
+    bool found = false
+    for z in zones
+        if top > z.bottom and bottom < z.top
+            found := true
+    found
+//#endregion
+
+//#region Drawing helpers
+color NO_COLOR = color.new(color.black, 100)
+float atrValue = ta.atr(14)
+
+// MSS: solid line, BOS: dashed line, from the broken swing to the breaking candle.
+drawBreak(int fromBar, float level, bool isMss, bool isUp) =>
+    if bar_index - fromBar <= MAX_BARS_BACK
+        color c = isUp ? bullColorInput : bearColorInput
+        line.new(fromBar, level, bar_index, level, color = c, style = isMss ? line.style_solid : line.style_dashed, width = isMss ? 2 : 1)
+        label.new(int(math.round((fromBar + bar_index) / 2)), level, isMss ? "MSS" : "BOS", style = isUp ? label.style_label_down : label.style_label_up, color = NO_COLOR, textcolor = c, size = isMss ? size.normal : size.small)
+
+// Bars back to the order block candle: the extreme candle of the last obLookback bars,
+// or the closest opposite-coloured candle at most 3 bars before it (the last down candle before an up move).
+baseCandle(bool isBull) =>
+    int extreme = 0
+    for i = 1 to obLookbackInput - 1
+        if isBull ? low[i] < low[extreme] : high[i] > high[extreme]
+            extreme := i
+    int base = extreme
+    for j = extreme to extreme + 3
+        if isBull ? close[j] < open[j] : close[j] > open[j]
+            base := j
+            break
+    base
+
+// Bars back to the lowest low (isLow) or highest high since `fromBar`.
+extremeSince(int fromBar, bool isLow) =>
+    int n = math.min(bar_index - fromBar, MAX_BARS_BACK)
+    int best = 0
+    for i = 1 to n
+        if isLow ? low[i] < low[best] : high[i] > high[best]
+            best := i
+    best
+
+addLevel(array<Level> levels, float price, int bar, bool isHigh) =>
+    line ln = line.new(bar, price, bar + sfpLenInput, price, color = sfpColorInput, style = line.style_dashed, width = 1)
+    label lb = label.new(bar + sfpLenInput, price, "SFP?", style = label.style_label_left, color = NO_COLOR, textcolor = sfpColorInput, size = size.small)
+    levels.push(Level.new(ln, lb, price, bar, isHigh))
+    if levels.size() > sfpMaxInput
+        Level old = levels.shift()
+        old.ln.delete()
+        old.lb.delete()
+
+// Removes levels that price took or that expired. Returns true when a level was taken by a wick
+// and the closed candle finished back on the other side (swing failure pattern).
+updateLevels(array<Level> levels) =>
+    bool sfp = false
+    if levels.size() > 0
+        for i = levels.size() - 1 to 0
+            Level lv = levels.get(i)
+            bool taken = lv.isHigh ? high > lv.price : low < lv.price
+            if taken or bar_index - lv.bar > sfpLenInput
+                if taken and barstate.isconfirmed and (lv.isHigh ? close < lv.price : close > lv.price)
+                    sfp := true
+                levels.remove(i)
+                lv.ln.delete()
+                lv.lb.delete()
+    sfp
+
+addFvg(array<Zone> zones, bool isBull, float top, float bottom) =>
+    color c = isBull ? fvgBullColorInput : fvgBearColorInput
+    int left = bar_index - 2
+    box bx = box.new(left, top, bar_index + 3, bottom, border_color = NO_COLOR, bgcolor = color.new(c, math.min(zoneTranspInput + 5, 100)), text = "FVG", text_color = zoneTextColorInput, text_size = size.small)
+    line mid = na
+    if fvgMidInput
+        mid := line.new(left, (top + bottom) / 2, bar_index + 3, (top + bottom) / 2, color = color.new(c, 30), style = line.style_dotted, width = 1)
+    addZone(zones, Zone.new(bx, mid, top, bottom, left, isBull), fvgMaxInput)
+
+addOb(array<Zone> zones, bool isBull) =>
+    int b = baseCandle(isBull)
+    float top = high[b]
+    float bottom = low[b]
+    float impulse = isBull ? close - top : bottom - close
+    if impulse >= obImpulseInput * nz(atrValue) and not overlapsZone(zones, top, bottom)
+        color c = isBull ? bullColorInput : bearColorInput
+        box bx = box.new(bar_index - b, top, bar_index + 3, bottom, border_color = color.new(c, 40), bgcolor = color.new(c, zoneTranspInput), text = "OB", text_color = zoneTextColorInput, text_size = size.normal)
+        addZone(zones, Zone.new(bx, na, top, bottom, bar_index - b, isBull), obMaxInput)
+//#endregion
+
+//#region Structure, breaks, order blocks, SFP, FVG
+float ph = ta.pivothigh(high, swingLenInput, swingLenInput)
+float pl = ta.pivotlow(low, swingLenInput, swingLenInput)
+int pivotBar = bar_index - swingLenInput
+
+var int trend = 0
+var float swingHigh = na
+var int swingHighBar = na
+var bool highTaken = true
+var float swingLow = na
+var int swingLowBar = na
+var bool lowTaken = true
+var int avwapAnchorBar = na
+
+var array<Level> sfpHighs = array.new<Level>()
+var array<Level> sfpLows = array.new<Level>()
+var array<Zone> bullObs = array.new<Zone>()
+var array<Zone> bearObs = array.new<Zone>()
+var array<Zone> bullFvgs = array.new<Zone>()
+var array<Zone> bearFvgs = array.new<Zone>()
+
+bool mssUp = false
+bool mssDown = false
+bool bosUp = false
+bool bosDown = false
+bool sfpHigh = false
+bool sfpLow = false
+bool newBullOb = false
+bool newBearOb = false
+
+// Existing levels and zones first, so a zone created on this bar is not tested against the same bar.
+sfpHigh := updateLevels(sfpHighs)
+sfpLow := updateLevels(sfpLows)
+updateZones(bullObs, obLenInput, obModeInput)
+updateZones(bearObs, obLenInput, obModeInput)
+updateZones(bullFvgs, fvgLenInput, fvgModeInput)
+updateZones(bearFvgs, fvgLenInput, fvgModeInput)
+
+if sfpMarkInput and sfpHigh
+    label.new(bar_index, high, "SFP", style = label.style_label_down, color = NO_COLOR, textcolor = bearColorInput, size = size.small)
+if sfpMarkInput and sfpLow
+    label.new(bar_index, low, "SFP", style = label.style_label_up, color = NO_COLOR, textcolor = bullColorInput, size = size.small)
+
+// New swings (confirmed swingLen bars after the swing candle).
+if not na(ph)
+    if showStructInput and not na(swingHigh)
+        label.new(pivotBar, ph, ph > swingHigh ? "HH" : "LH", style = label.style_label_down, color = NO_COLOR, textcolor = structColorInput, size = size.small)
+    swingHigh := ph
+    swingHighBar := pivotBar
+    highTaken := false
+    if showSfpInput
+        addLevel(sfpHighs, ph, pivotBar, true)
+
+if not na(pl)
+    if showStructInput and not na(swingLow)
+        label.new(pivotBar, pl, pl > swingLow ? "HL" : "LL", style = label.style_label_up, color = NO_COLOR, textcolor = structColorInput, size = size.small)
+    swingLow := pl
+    swingLowBar := pivotBar
+    lowTaken := false
+    if showSfpInput
+        addLevel(sfpLows, pl, pivotBar, false)
+
+// Breaks: a closed candle beyond the latest swing high / low.
+if barstate.isconfirmed and not highTaken and close > swingHigh
+    highTaken := true
+    bool isMss = trend != 1
+    trend := 1
+    mssUp := isMss
+    bosUp := not isMss
+    if isMss ? showMssInput : showBosInput
+        drawBreak(swingHighBar, swingHigh, isMss, true)
+    if isMss
+        avwapAnchorBar := bar_index - extremeSince(swingHighBar, true)
+    if showObInput
+        int countBefore = bullObs.size()
+        addOb(bullObs, true)
+        newBullOb := bullObs.size() > countBefore
+
+if barstate.isconfirmed and not lowTaken and close < swingLow
+    lowTaken := true
+    bool isMss = trend != -1
+    trend := -1
+    mssDown := isMss
+    bosDown := not isMss
+    if isMss ? showMssInput : showBosInput
+        drawBreak(swingLowBar, swingLow, isMss, false)
+    if isMss
+        avwapAnchorBar := bar_index - extremeSince(swingLowBar, false)
+    if showObInput
+        int countBefore = bearObs.size()
+        addOb(bearObs, false)
+        newBearOb := bearObs.size() > countBefore
+
+// Fair value gaps: candle 3 does not overlap candle 1.
+float gapMin = fvgMinInput * nz(atrValue)
+if showFvgInput and barstate.isconfirmed and bar_index >= 2
+    if low > high[2] and low - high[2] >= gapMin
+        addFvg(bullFvgs, true, low, high[2])
+    if high < low[2] and low[2] - high >= gapMin
+        addFvg(bearFvgs, false, low[2], high)
+//#endregion
+
+//#region EMAs
+float ema1 = ta.ema(emaSrcInput, ema1LenInput)
+float ema2 = ta.ema(emaSrcInput, ema2LenInput)
+float ema3 = ta.ema(emaSrcInput, ema3LenInput)
+float ema4 = ta.ema(emaSrcInput, ema4LenInput)
+float ema5 = ta.ema(emaSrcInput, ema5LenInput)
+float ema6 = ta.ema(emaSrcInput, ema6LenInput)
+plot(showEmaInput and ema1OnInput ? ema1 : na, "EMA 1", ema1ColorInput, emaWidthInput)
+plot(showEmaInput and ema2OnInput ? ema2 : na, "EMA 2", ema2ColorInput, emaWidthInput)
+plot(showEmaInput and ema3OnInput ? ema3 : na, "EMA 3", ema3ColorInput, emaWidthInput)
+plot(showEmaInput and ema4OnInput ? ema4 : na, "EMA 4", ema4ColorInput, emaWidthInput)
+plot(showEmaInput and ema5OnInput ? ema5 : na, "EMA 5", ema5ColorInput, emaWidthInput)
+plot(showEmaInput and ema6OnInput ? ema6 : na, "EMA 6", ema6ColorInput, emaWidthInput)
+//#endregion
+
+//#region VWAPs
+// Session VWAPs reset at the start of each day / week / month and are hidden on timeframes of that length or longer.
+int chartSecs = timeframe.in_seconds()
+bool newDay = timeframe.change("D")
+bool newWeek = timeframe.change("W")
+bool newMonth = timeframe.change("M")
+[vwapDay, vwapDayUp, vwapDayDn] = ta.vwap(vwapSrcInput, newDay, vwapBandMultInput)
+[vwapWeek, vwapWeekUp, vwapWeekDn] = ta.vwap(vwapSrcInput, newWeek, vwapBandMultInput)
+float vwapMonth = ta.vwap(vwapSrcInput, newMonth)
+bool showDay = showVwapInput and vwapDayInput and chartSecs < 86400
+bool showWeek = showVwapInput and vwapWeekInput and chartSecs < 604800
+bool showMonth = showVwapInput and vwapMonthInput and chartSecs < timeframe.in_seconds("M")
+
+// Fully transparent on the first bar of a new period, so the jump to the new VWAP is not drawn.
+periodColor(color c, bool isNew) =>
+    isNew ? color.new(c, 100) : c
+
+plot(showDay ? vwapDay : na, "Daily VWAP", periodColor(vwapDayColorInput, newDay), 1)
+plot(showDay and vwapBandsInput ? vwapDayUp : na, "Daily VWAP upper band", periodColor(color.new(vwapDayColorInput, 50), newDay), 1)
+plot(showDay and vwapBandsInput ? vwapDayDn : na, "Daily VWAP lower band", periodColor(color.new(vwapDayColorInput, 50), newDay), 1)
+plot(showWeek ? vwapWeek : na, "Weekly VWAP", periodColor(vwapWeekColorInput, newWeek), 2)
+plot(showWeek and vwapBandsInput ? vwapWeekUp : na, "Weekly VWAP upper band", periodColor(color.new(vwapWeekColorInput, 50), newWeek), 1)
+plot(showWeek and vwapBandsInput ? vwapWeekDn : na, "Weekly VWAP lower band", periodColor(color.new(vwapWeekColorInput, 50), newWeek), 1)
+plot(showMonth ? vwapMonth : na, "Monthly VWAP", periodColor(vwapMonthColorInput, newMonth), 2)
+
+// Anchored VWAP from a date: cumulative from the first candle at or after the anchor time.
+var float dateSumPV = na
+var float dateSumV = na
+if time >= avwapTimeInput and (bar_index == 0 or time[1] < avwapTimeInput)
+    dateSumPV := 0.0
+    dateSumV := 0.0
+if not na(dateSumV)
+    dateSumPV += vwapSrcInput * nz(volume)
+    dateSumV += nz(volume)
+float avwapDate = dateSumV > 0 ? dateSumPV / dateSumV : na
+plot(showVwapInput and avwapDateInput ? avwapDate : na, "Anchored VWAP (date)", avwapDateColorInput, 2)
+
+// Anchored VWAP from the last MSS: the anchor lies in the past, so the whole line is redrawn on the last bar.
+var polyline avwapLine = na
+var label avwapLabel = na
+if barstate.islast
+    if not na(avwapLine)
+        avwapLine.delete()
+    if not na(avwapLabel)
+        avwapLabel.delete()
+    if showVwapInput and avwapAutoInput and not na(avwapAnchorBar)
+        int n = math.min(bar_index - avwapAnchorBar, MAX_BARS_BACK)
+        array<chart.point> points = array.new<chart.point>()
+        float sumPV = 0.0
+        float sumV = 0.0
+        for i = n to 0
+            float v = nz(volume[i])
+            sumPV += vwapSrcInput[i] * v
+            sumV += v
+            if sumV > 0
+                points.push(chart.point.from_index(bar_index - i, sumPV / sumV))
+        if points.size() > 1
+            avwapLine := polyline.new(points, line_color = avwapAutoColorInput, line_width = 2)
+            avwapLabel := label.new(bar_index, points.last().price, "aVWAP (MSS)", style = label.style_label_left, color = NO_COLOR, textcolor = avwapAutoColorInput, size = size.small)
+//#endregion
+
+//#region Trend table
+string htfTf = htfInput == "" ? timeframe.from_seconds(timeframe.in_seconds() * 4) : htfInput
+int htfTrend = request.security(syminfo.tickerid, htfTf, confirmedTrend(swingLenInput), lookahead = barmerge.lookahead_on)
+
+trendColor(int t) =>
+    t == 1 ? bullColorInput : t == -1 ? bearColorInput : color.rgb(120, 123, 134)
+
+var table trendTable = na
+if barstate.islast
+    if not na(trendTable)
+        trendTable.delete()
+    if showTableInput
+        string sz = textSize(tableSizeInput)
+        color bg = color.rgb(19, 23, 34)
+        color fg = color.rgb(209, 212, 220)
+        bool bothUp = htfTrend == 1 and trend == 1
+        bool bothDown = htfTrend == -1 and trend == -1
+        string alignText = bothUp ? "Aligned: both up ▲" : bothDown ? "Aligned: both down ▼" : htfTrend == 1 and trend == -1 ? "Mixed: pullback in a higher uptrend" : htfTrend == -1 and trend == 1 ? "Mixed: bounce in a higher downtrend" : "Mixed: no alignment"
+        color alignColor = bothUp ? bullColorInput : bothDown ? bearColorInput : fg
+        trendTable := table.new(tablePosition(tablePosInput), 2, 4, border_width = 1, border_color = color.rgb(42, 46, 57))
+        trendTable.cell(0, 0, "Trend on 2 timeframes", text_color = fg, bgcolor = bg, text_size = sz)
+        trendTable.merge_cells(0, 0, 1, 0)
+        trendTable.cell(0, 1, "Higher · " + tfLabel(htfTf), text_color = fg, bgcolor = bg, text_size = sz, text_halign = text.align_left)
+        trendTable.cell(1, 1, trendText(htfTrend), text_color = color.white, bgcolor = trendColor(htfTrend), text_size = sz)
+        trendTable.cell(0, 2, "Current · " + tfLabel(timeframe.period), text_color = fg, bgcolor = bg, text_size = sz, text_halign = text.align_left)
+        trendTable.cell(1, 2, trendText(trend), text_color = color.white, bgcolor = trendColor(trend), text_size = sz)
+        trendTable.cell(0, 3, alignText, text_color = alignColor, bgcolor = bg, text_size = sz)
+        trendTable.merge_cells(0, 3, 1, 3)
+//#endregion
+
+//#region Alerts
+// One alert() call routes every event: create one alert with "Any alert() function call".
+string alertMsg = ""
+if mssUp
+    alertMsg += "Bullish MSS; "
+if mssDown
+    alertMsg += "Bearish MSS; "
+if bosUp
+    alertMsg += "Bullish BOS; "
+if bosDown
+    alertMsg += "Bearish BOS; "
+if sfpHigh
+    alertMsg += "SFP of a swing high; "
+if sfpLow
+    alertMsg += "SFP of a swing low; "
+if newBullOb
+    alertMsg += "New bullish OB; "
+if newBearOb
+    alertMsg += "New bearish OB; "
+if alertMsg != ""
+    alert(syminfo.ticker + " " + timeframe.period + ": " + alertMsg + "close " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+alertcondition(mssUp, "Bullish MSS", "{{ticker}} {{interval}}: bullish market structure shift, close {{close}}")
+alertcondition(mssDown, "Bearish MSS", "{{ticker}} {{interval}}: bearish market structure shift, close {{close}}")
+alertcondition(bosUp, "Bullish BOS", "{{ticker}} {{interval}}: bullish break of structure, close {{close}}")
+alertcondition(bosDown, "Bearish BOS", "{{ticker}} {{interval}}: bearish break of structure, close {{close}}")
+alertcondition(sfpHigh, "SFP high", "{{ticker}} {{interval}}: swing failure at a swing high, close {{close}}")
+alertcondition(sfpLow, "SFP low", "{{ticker}} {{interval}}: swing failure at a swing low, close {{close}}")
+//#endregion
