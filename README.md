@@ -1,4 +1,4 @@
-# Price Action for TradingView
+# [ad] Price Action
 
 `[ad] Price Action` is a Pine Script v6 indicator that puts the main price action tools on one chart:
 
